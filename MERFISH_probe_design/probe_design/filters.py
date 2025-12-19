@@ -4,14 +4,14 @@ from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
-from Bio.SeqUtils import GC
+from Bio.SeqUtils import gc_fraction
 from Bio.SeqUtils import MeltingTemp
 
 # GLOBAL VARIABLES
 from . import seq2int
 
 def filter_probe_dict_by_metric(probe_dict:pd.core.frame.DataFrame, column_key:str, 
-        lower_bound:float=-np.Inf, upper_bound:float=np.Inf):
+        lower_bound:float=-np.inf, upper_bound:float=np.inf):
     '''Filter the probe dictionary by a metric.'''
     for gk in probe_dict.keys():
         print(gk)
@@ -34,7 +34,7 @@ def calc_gc_for_probe_dict(probe_dict:pd.core.frame.DataFrame,
             
             gcs = []
             for seq in probe_dict[gk][tk][column_key_seq]:
-                gcs.append(GC(seq))
+                gcs.append(gc_fraction(seq) * 100)
 
             probe_dict[gk][tk][column_key_write] = pd.Series(gcs, index=probe_dict[gk][tk].index)
 
