@@ -6,6 +6,7 @@ import re
 import pickle
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from Bio.Seq import reverse_complement
 
@@ -66,7 +67,7 @@ def get_OTTable_for_sequences(sequences:list, K:int, weights:list=[], verbose:bo
 
     table = OTTable()
 
-    for i in range(len(sequences)):
+    for i in tqdm(range(len(sequences)), desc='Building OTTable', unit='sequences', total=len(sequences), disable=not verbose):
         seq = sequences[i]
         w = weights[i]
 
@@ -74,8 +75,8 @@ def get_OTTable_for_sequences(sequences:list, K:int, weights:list=[], verbose:bo
         for j in range(len(seq) - K + 1): 
             table.add_seq(seq[j:j+K].upper(), w)
 
-        if verbose and (i + 1) % 10000 == 0:
-            print(f'Processed {i + 1}/{len(sequences)} sequences.')
+        #if verbose and (i + 1) % 10000 == 0:
+        #    print(f'Processed {i + 1}/{len(sequences)} sequences.')
 
     return table
 
@@ -186,9 +187,9 @@ def calc_OTs(probe_dict:dict, ottable:OTTable, seq_key:str, ot_key:str, K:int):
         ot_key: The column key to save the off-targets.
         K: The size of K-mers for the OTTable.
     '''
-    for i, gk in enumerate(probe_dict.keys()):
-        if len(probe_dict) < 100 or i % (len(probe_dict) // 100) == 0:
-            print(f'Calculate OTs for {i}/{len(probe_dict.keys())} genes.')
+    for i, gk in tqdm(enumerate(probe_dict.keys()), desc='Calculating OTs', unit='genes', total=len(probe_dict.keys())):
+        #if len(probe_dict) < 100 or i % (len(probe_dict) // 100) == 0:
+        #    print(f'Calculate OTs for {i}/{len(probe_dict.keys())} genes.')
         for tk in probe_dict[gk].keys():
             calc_OTs_df(probe_dict[gk][tk], ottable, seq_key, ot_key, K)
 
