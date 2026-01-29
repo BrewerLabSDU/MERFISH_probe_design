@@ -11,17 +11,18 @@ from Bio.SeqUtils import MeltingTemp
 from . import seq2int
 
 def filter_probe_dict_by_metric(probe_dict:pd.core.frame.DataFrame, column_key:str, 
-        lower_bound:float=-np.inf, upper_bound:float=np.inf):
+        lower_bound:float=-np.inf, upper_bound:float=np.inf, verbose:bool=False):
     '''Filter the probe dictionary by a metric.'''
     for gk in probe_dict.keys():
-        print(gk)
+        if verbose:
+            print(gk)
         for tk in probe_dict[gk].keys():
             new_df= probe_dict[gk][tk][
                 probe_dict[gk][tk][column_key].gt(lower_bound) & 
                 probe_dict[gk][tk][column_key].lt(upper_bound)
             ]
-            
-            print(f'\t{tk}: {new_df.shape[0]} / {probe_dict[gk][tk].shape[0]} probes passed the filter {lower_bound} < {column_key} <  {upper_bound}.')
+            if verbose:
+                print(f'\t{tk}: {new_df.shape[0]} / {probe_dict[gk][tk].shape[0]} probes passed the filter {lower_bound} < {column_key} <  {upper_bound}.')
             probe_dict[gk][tk] = new_df
 
 def calc_gc_for_probe_dict(probe_dict:pd.core.frame.DataFrame, 
