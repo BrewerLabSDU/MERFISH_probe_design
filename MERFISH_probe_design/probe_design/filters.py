@@ -148,7 +148,7 @@ def calc_GC_for_left_probe_dict(
         for tk in probe_dict[gk].keys():
             gcs = []
             for seq in probe_dict[gk][tk][column_key_seq]:
-                gcs.append(GC(seq[:left_length]))
+                gcs.append(gc_fraction(seq[:left_length]) * 100)
 
             probe_dict[gk][tk][column_key_write+str(left_length)] = pd.Series(gcs, index=probe_dict[gk][tk].index)
     
@@ -164,7 +164,7 @@ def calc_GC_for_right_probe_dict(
         for tk in probe_dict[gk].keys():
             gcs = []
             for seq in probe_dict[gk][tk][column_key_seq]:
-                gcs.append(GC(seq[-right_length:]))
+                gcs.append(gc_fraction(seq[-right_length:]) * 100)
 
             probe_dict[gk][tk][column_key_write+str(right_length)] = pd.Series(gcs, index=probe_dict[gk][tk].index)  
 
