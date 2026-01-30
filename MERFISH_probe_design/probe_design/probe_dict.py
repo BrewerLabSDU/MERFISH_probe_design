@@ -106,4 +106,22 @@ def get_rc_sequences(probe_dict:dict, input_column:str, output_column:str):
             rc_seqs = [reverse_complement(seq) for seq in probe_dict[gk][tk][input_column]]
             probe_dict[gk][tk][output_column] = pd.Series(rc_seqs, index=probe_dict[gk][tk].index)
 
-
+def get_gene_df(probe_dict: dict, gene_id: int | str, transcript_id: int | str):
+    '''Get the data frame of probes for a specific gene and transcript given as integers or strings.'''
+    if isinstance(gene_id, str) and isinstance(transcript_id, str):
+        return probe_dict[gene_id][transcript_id]
+    elif isinstance(gene_id, int) and isinstance(transcript_id, int):
+        try:
+            gk = list(probe_dict.keys())[gene_id]
+            tk = list(probe_dict[gk].keys())[transcript_id]
+            print(f'Gene id: {gk}, Transcript id: {tk}')
+            return probe_dict[gk][tk]
+        except IndexError as e:
+            if gene_id < 0 or gene_id >= len(probe_dict):
+                print(f'Error: gene_id {gene_id} is out of range (max_gene={len(probe_dict)}).')
+            else:
+                gk = list(probe_dict.keys())[gene_id]
+                if transcript_id < 0 or transcript_id >= len(probe_dict[gk]):
+                    print(f'Error: transcript_id {transcript_id} is out of range for gene {gk} (max_transcript={len(probe_dict[gk])}).')
+            raise e
+    
