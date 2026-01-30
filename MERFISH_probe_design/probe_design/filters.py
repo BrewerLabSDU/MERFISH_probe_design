@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from copy import deepcopy
 from typing import Dict
+from collections import Counter
 from Bio.SeqUtils import gc_fraction
 from Bio.SeqUtils import MeltingTemp
 
@@ -13,19 +14,23 @@ from Bio.SeqUtils import MeltingTemp
 from . import seq2int
 
 def filter_probe_dict_by_metric(probe_dict:pd.core.frame.DataFrame, column_key:str, 
-        lower_bound:float=-np.inf, upper_bound:float=np.inf, verbose:bool=False):
+        lower_bound:float=-np.inf, upper_bound:float=np.inf, verbose:bool=False) -> pd.core.frame.DataFrame:
     '''Filter the probe dictionary by a metric.'''
-    for gk in probe_dict.keys():
+    # First save a copy of the original probe dictionary
+    probe_dict_copy = deepcopy(probe_dict)
+    for gk in probe_dict_copy.keys():
         if verbose:
             print(gk)
-        for tk in probe_dict[gk].keys():
-            new_df= probe_dict[gk][tk][
-                probe_dict[gk][tk][column_key].gt(lower_bound) & 
-                probe_dict[gk][tk][column_key].lt(upper_bound)
+        for tk in probe_dict_copy[gk].keys():
+            new_df= probe_dict_copy[gk][tk][
+                probe_dict_copy[gk][tk][column_key].gt(lower_bound) & 
+                probe_dict_copy[gk][tk][column_key].lt(upper_bound)
             ]
             if verbose:
-                print(f'\t{tk}: {new_df.shape[0]} / {probe_dict[gk][tk].shape[0]} probes passed the filter {lower_bound} < {column_key} <  {upper_bound}.')
-            probe_dict[gk][tk] = new_df
+                print(f'\t{tk}: {new_df.shape[0]} / {probe_dict_copy[gk][tk].shape[0]} probes passed the filter {lower_bound} < {column_key} <  {upper_bound}.')
+            probe_dict_copy[gk][tk] = new_df
+
+    return probe_dict_copy
 
 def calc_gc_for_probe_dict(probe_dict:pd.core.frame.DataFrame, 
         column_key_seq:str='target_sequence', column_key_write='target_GC'):
@@ -356,3 +361,57 @@ def print_filter_summary(
         print(f"  Median: {np.median(threshold_stats):.3f}")
         print(f"  Min: {np.min(threshold_stats):.3f}")
         print(f"  Max: {np.max(threshold_stats):.3f}")
+
+def filter_probe_dict(probe_dict, remove_df, 
+                      filter_keys=("gene_id", "transcript_id", "probe_id"), 
+                      probe_dict_col="shift"):
+    """
+    Filters a probe dictionary by removing probes present in a given DataFrame.
+
+    Args:
+        probe_dict (dict): Nested dictionary {gene_id: {transcript_id: DataFrame}}.
+        remove_df (pd.DataFrame): DataFrame containing the probes to remove.
+        filter_keys (tuple): Columns in remove_df corresponding to (gene_id, transcript_id, probe_identifier).
+        probe_dict_col (str): Column name in the probe_dict's inner DataFrame corresponding to the probe identifier.
+
+    Returns:
+        dict: A filtered deep copy of the probe dictionary.
+    """
+    # Unpack keys for clarity
+    key_gene, key_transcript, key_probe = filter_keys
+
+    # Create a set of tuples to identify probes to remove
+    # We zip the columns from the dataframe. Ensure probe ID is string for consistent matching.
+    to_remove = set(zip(
+        remove_df[key_gene], 
+        remove_df[key_transcript], 
+        remove_df[key_probe].astype(str)
+    ))
+
+    print(f"Probes to be removed: {len(to_remove)}")
+
+    # Count the occurrences of each gene being removed
+    value_counts = Counter([item[0] for item in to_remove])
+    for gene, count in sorted(value_counts.items()):
+        print(f"{gene}: {count}")
+
+    # Deepcopy the original probe_dict to avoid modifying it in place
+    filtered_dict = deepcopy(probe_dict)
+
+    # Iterate and filter
+    for gene_id, transcripts in filtered_dict.items():
+        for transcript_id, df_transcript in transcripts.items():
+            if probe_dict_col not in df_transcript.columns:
+                continue
+
+            # Create a mask for rows to keep
+            # We match (gene, transcript, probe_id) against the removal set
+            mask = ~df_transcript.apply(
+                lambda row: (gene_id, transcript_id, str(row[probe_dict_col])) in to_remove, 
+                axis=1
+            )
+            
+            # Apply the mask to update the dataframe in the deepcopied structure
+            filtered_dict[gene_id][transcript_id] = df_transcript[mask]
+
+    return filtered_dict
