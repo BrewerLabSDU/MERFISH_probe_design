@@ -9,7 +9,7 @@ import pandas as pd
 def select_probes_greedy_stochastic_one_df(df:pd.core.frame.DataFrame, N_probes_per_transcript:int, N_on_bits:int):
     '''A greedy stochastic method to select probes from one data frame.'''
     if N_probes_per_transcript >= df.shape[0]:
-        print(f'There are only {df.shape[0]} probes while {N_probes_per_transcript} are required! Just return everything!')
+        print(f'{df.iloc[0]["gene_id"]}: !!! Only {df.shape[0]}/{N_probes_per_transcript} probes available. All probes are returned.')
         return df
 
     # Get the on-bits of the transcript
