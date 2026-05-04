@@ -1,15 +1,48 @@
 #!/usr/bin/env python3
 
 
+from copy import deepcopy
 from multiprocessing import Pool
 import numpy as np
 import pandas as pd
 
 
-def select_probes_greedy_stochastic_one_df(df:pd.core.frame.DataFrame, N_probes_per_transcript:int, N_on_bits:int):
+def count_max_non_overlapping_probes(probe_dict:dict):
+    '''Count the maximum number of non-overlapping probes for each transcript
+        in the probe_dict.
+    Arguments:
+        probe_dict: The dictionary of probes.
+    Return:
+        A data frame of the count of max non-overlapping probes
+    '''
+    count_dict = {
+        'gene' : [],
+        'transcript' : [],
+        'n_probes' : [],
+        'n_max_no_overlap_probes' : [],
+    }
+    for gk in probe_dict.keys(): 
+        for tk in probe_dict[gk].keys():
+            probe_df = probe_dict[gk][tk].sort_values('shift')
+
+            current_end = -1
+            n_max_no_overlap_probes = 0
+            for i, row in probe_df.iterrows():
+                if row['shift'] > current_end:
+                    n_max_no_overlap_probes += 1
+                    current_end = row['shift'] + len(row['target_sequence']) - 1
+
+            count_dict['gene'].append(gk)
+            count_dict['transcript'].append(tk)
+            count_dict['n_probes'].append(probe_df.shape[0])
+            count_dict['n_max_no_overlap_probes'].append(n_max_no_overlap_probes)
+
+    return pd.DataFrame(count_dict)
+
+def select_probes_greedy_stochastic_one_df_trial(df:pd.core.frame.DataFrame, N_probes_per_transcript:int, N_on_bits:int):
     '''A greedy stochastic method to select probes from one data frame.'''
     if N_probes_per_transcript >= df.shape[0]:
-        print(f'{df.iloc[0]["gene_id"]}: !!! Only {df.shape[0]}/{N_probes_per_transcript} probes available. All probes are returned.')
+        print(f'There are only {df.shape[0]} probes while {N_probes_per_transcript} are required! Just return everything!')
         return df
 
     # Get the on-bits of the transcript
@@ -21,7 +54,8 @@ def select_probes_greedy_stochastic_one_df(df:pd.core.frame.DataFrame, N_probes_
     on_bits = list(on_bits)
 
     if len(on_bits) != N_on_bits:
-        raise Exception(f'Probes for {df.iloc[0]["gene_id"]}:{df.iloc[0]["transcript_id"]} have {len(on_bits)} on-bits instead of {N_on_bits}!')
+        # TODO: Make sure this solution is not selected
+        print(f'Probes for {df.iloc[0]["gene_id"]}:{df.iloc[0]["transcript_id"]} have {len(on_bits)} on-bits instead of {N_on_bits}!')
 
     # Create a array to track the coverage of the transcript
     target_length = len(df.iloc[0]['target_sequence'])
@@ -75,28 +109,56 @@ def select_probes_greedy_stochastic_one_df(df:pd.core.frame.DataFrame, N_probes_
             if bc[i] == '1':
                 on_bit_coverage[i] += 1
 
-    print(f'{df.iloc[0]["gene_id"]}:{df.iloc[0]["transcript_id"]}: selected {N_probes_per_transcript}/{df.shape[0]} probes with N_overlapping_bases={np.sum(transcript_coverage * (transcript_coverage - 1)  / 2)} and on-bit_coverage={on_bit_coverage}.')
-
     # Return a data frame with the selected indices
-    return df.iloc[selected_indices]
+    return df.iloc[selected_indices], transcript_coverage, on_bit_coverage
 
+def select_probes_greedy_stochastic_one_df(df:pd.core.frame.DataFrame, N_probes_per_transcript:int, N_on_bits:int, n_trials:int=1):
+    '''A greedy stochastic method to select probes from one data frame.'''
+    
+    if N_probes_per_transcript >= df.shape[0]:
+        print(f'There are only {df.shape[0]} probes while {N_probes_per_transcript} are required! Just return everything!')
+        return df
 
-def select_probes_greedy_stochastic(probe_dict:dict, N_probes_per_transcript:int, N_on_bits:int=4, N_threads:int=1):
+    best_coverage_score = np.inf
+
+    for t in range(n_trials):
+        selected_df, transcript_coverage, on_bit_coverage = select_probes_greedy_stochastic_one_df_trial(df, N_probes_per_transcript, N_on_bits)
+        
+        # Calculate a coverage score to evaluate the selection
+        coverage_score = max(on_bit_coverage.values()) - min(on_bit_coverage.values())
+
+        if coverage_score < best_coverage_score:
+            best_selected_df = selected_df
+            best_transcript_coverage = transcript_coverage
+            best_on_bit_coverage = on_bit_coverage
+            best_coverage_score = coverage_score
+
+        if best_coverage_score == 0:
+            break
+
+    print(f'{df.iloc[0]["gene_id"]}:{df.iloc[0]["transcript_id"]}: selected {N_probes_per_transcript}/{df.shape[0]} probes with N_overlapping_bases={np.sum(best_transcript_coverage * (best_transcript_coverage - 1)  / 2)} and on-bit_coverage={best_on_bit_coverage}.')
+    return best_selected_df
+
+def select_probes_greedy_stochastic(probe_dict:dict, N_probes_per_transcript:int, N_on_bits:int=4, N_threads:int=1, n_trials:int=1):
     '''A greedy stochastic method to select probes.
     Arguments:
         probe_dict: The dictionary of probes.
         N_on_bits: The number of on bits each probe should have.
     '''
+    # Copy probe_dict to avoid modifying the original one
+    probe_dict_temp = deepcopy(probe_dict)
     keys = []
     args = []
     for gk in probe_dict.keys(): 
         for tk in probe_dict[gk].keys():
             keys.append((gk, tk))
-            args.append([probe_dict[gk][tk], N_probes_per_transcript, N_on_bits]) 
+            args.append([probe_dict_temp[gk][tk], N_probes_per_transcript, N_on_bits, n_trials]) 
     
     with Pool(N_threads) as p:
         results = p.starmap(select_probes_greedy_stochastic_one_df, args)
 
     for i in range(len(keys)):
         gk, tk = keys[i]
-        probe_dict[gk][tk] = results[i]
+        probe_dict_temp[gk][tk] = results[i]
+    
+    return probe_dict_temp
