@@ -83,10 +83,13 @@ def plot_probes_comparison_barplot(
     log_y: bool = False,
     hlines: list = None,
     title_filter: str = "",
+    return_fig: bool = False,
+    label1: str = "Previous",
+    label2: str = "Filtered",
 ):
     """
     Visualize how filtering affects the number of probes per transcript
-    by plotting original vs. filtered counts side-by-side.
+    by plotting {label1} vs. {label2} counts side-by-side.
 
     Parameters
     ----------
@@ -99,7 +102,7 @@ def plot_probes_comparison_barplot(
         Whether to apply log scale to the y-axis.
     hlines : list or None, default [20, 50]
         Horizontal reference lines to draw; set to None to disable.
-    title : str, default "Probes per transcript: original vs. filtered"
+    title : str, default "Probes per transcript: {label1} vs. {label2}"
         Title of the plot.
     """
 
@@ -141,10 +144,13 @@ def plot_probes_comparison_barplot(
     # Create the bar plot
     fig, ax = plt.subplots(figsize=(16, 6))
     x = np.arange(len(labels))
-    width = 0.42  # bar width
+    width = 0.6  # bar width
 
-    bars1 = ax.bar(x - width/2, original_counts, width, label="Original", color="#4C78A8")
-    bars2 = ax.bar(x + width/2, filtered_counts, width, label="Filtered", color="#F58518")
+    # Plot 'Previous' first (Background) - using alpha to make it look like a container
+    bars1 = ax.bar(x, original_counts, width, label=label1, color="#4C78A8", alpha=0.3)
+    
+    # Plot 'Filtered' second (Foreground) - drawn on top
+    bars2 = ax.bar(x, filtered_counts, width, label=label2, color="#F58518")
 
     # Optional: log scale
     if log_y:
@@ -167,12 +173,14 @@ def plot_probes_comparison_barplot(
 
     # Labels, legend, grid and title
     ax.set_ylabel('Number of probes')
-    ax.set_title(f"Probes per transcript: original vs. filtered | {title_filter}")
+    ax.set_title(f"Probes per transcript: {label1} vs. {label2} | {title_filter}")
     ax.legend()
     ax.grid(axis='y', alpha=0.25)
 
     # Tight layout to reduce label clipping
     fig.tight_layout()
+    if return_fig:
+        return fig
     plt.show()
 
 def _moving_average(arr: np.ndarray, window: int | None) -> np.ndarray:
@@ -192,6 +200,9 @@ def _normalize(arr: np.ndarray, do_norm: bool) -> np.ndarray:
 def _compute_coverage_for_transcript(probe_df: pd.DataFrame, seq_length: int) -> np.ndarray:
     """Compute per-base coverage for a single transcript."""
     cov = np.zeros(seq_length, dtype=float)
+    # Check if probe_df is empty to avoid errors when accessing columns
+    if probe_df.empty:
+        return cov
     # Expect columns: 'shift' (0-based start), 'target_sequence' (nt string)
     for shift, seq in zip(probe_df['shift'].to_numpy(), probe_df['target_sequence'].astype(str).to_numpy()):
         if pd.isna(shift):
@@ -319,23 +330,30 @@ def plot_ridge_coverage_for_all_genes(
             continue
         if sort_within_gene == "length":
             order = [m["tid"] for m in sorted(metrics, key=lambda m: m["length"], reverse=True)]
+            block_score = max(m["length"] for m in metrics)
         elif sort_within_gene == "maxcov":
             order = [m["tid"] for m in sorted(metrics, key=lambda m: m["maxcov"], reverse=True)]
+            block_score = max(m["maxcov"] for m in metrics)
         elif sort_within_gene == "name":
-            order = [m["tid"] for m in sorted(metrics, key=lambda m: m["name"])]
+            order = [m["tid"] for m in sorted(metrics, key=lambda m: m["name"], reverse=True)]
+            block_score = g
         else:
             order = list(covs.keys())
-        blocks.append((g, order, covs))
+            block_score = 0
+        blocks.append((g, order, covs, block_score))
+
+    if sort_within_gene in ("length", "maxcov", "name"):
+        blocks.sort(key=lambda b: b[3], reverse=True)
 
     # Compute total height
-    total_ridges = sum(len(order) for _, order, _ in blocks)
+    total_ridges = sum(len(order) for _, order, _, _ in blocks)
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     # Draw all blocks with extra inter-gene spacing
     y_cursor = 0.0
     ridge_idx_global = 0
     max_L = 0
-    for g, order, covs in blocks:
+    for g, order, covs, _ in blocks:
         # Optional: gene label to the left
         ax.text(-0.02, y_cursor + (len(order) * spacing) / 2, g,
                 ha="right", va="center", transform=ax.get_yaxis_transform(), fontsize=10, weight="bold")
@@ -355,6 +373,7 @@ def plot_ridge_coverage_for_all_genes(
 
     ax.set_xlabel("Transcript position (bases)")
     # ax.set_ylabel("Transcripts (grouped by gene)")
+    ax.set_yticks([])
     ax.set_xlim(0, max_L + 50)
     ax.set_ylim(-0.1 * height, y_cursor + 0.5 * height)
     ax.set_title("Probe coverage ridgeplot · All genes"
@@ -368,8 +387,8 @@ def plot_ridge_coverage_for_all_genes_split_by_length(
     probe_dict: dict[str, dict[str, pd.DataFrame]],
     transcriptome: pd.DataFrame,
     # Length thresholds
-    short_max_len: int = 3000,
-    long_min_len: int = 3001,
+    short_max_len: int | None = None,
+    long_min_len: int | None = None,
     # Optional selection
     genes: list[str] | None = None,
     transcripts_by_gene: dict[str, list[str]] | None = None,
@@ -407,6 +426,18 @@ def plot_ridge_coverage_for_all_genes_split_by_length(
         if transcripts_by_gene and (g in transcripts_by_gene):
             tids = [t for t in tids if t in transcripts_by_gene[g]]
         return tids
+
+    if short_max_len is None and long_min_len is None:
+        all_lengths = []
+        for g in gene_list:
+            for tid in _allowed_tids(g):
+                L = tlen_map.get(tid)
+                if L is not None:
+                    all_lengths.append(L)
+        if all_lengths:
+            mean_len = int(np.mean(all_lengths))
+            short_max_len = mean_len
+            long_min_len = mean_len + 1
 
     # Build per-group transcript filters
     short_map: dict[str, list[str]] = {}
