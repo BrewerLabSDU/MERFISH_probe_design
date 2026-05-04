@@ -208,7 +208,10 @@ def calc_OT_diffs(probe_dict:dict, ottable:OTTable, gene_ottable_dict:dict, tran
     '''
     for gk in probe_dict.keys():
         for tk in probe_dict[gk].keys():
-
+            # Check if tk df is empty
+            if probe_dict[gk][tk].shape[0] == 0:
+                probe_dict[gk][tk][ot_key] = pd.Series(dtype=float)
+                continue
             # Calculate OTs of the first sequence
             ots1 = []
             for seq1 in probe_dict[gk][tk][seq_key1]:
