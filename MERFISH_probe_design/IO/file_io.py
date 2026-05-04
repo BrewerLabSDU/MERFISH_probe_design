@@ -80,75 +80,88 @@ def load_transcriptome(transcripts_fasta_file:str, fpkm_tracking_file:str=None, 
     '''Load the transcriptome into a pandas data frame.
     If the FPKM tracking file is not provided, set all FPKMs to be 1.
     '''
-    
+    # TODO: Clean up this function...
     # Load the transcripts
     transcripts = load_fasta_into_df(transcripts_fasta_file)
     print(f'Loaded {transcripts.shape[0]} transcripts.')
-    transcripts.rename(columns={'id':'transcript_id'}, inplace=True)
-   
-    if fpkm_tracking_file is not None:
-        # Load the FPKMs
-        fpkms = pd.read_csv(fpkm_tracking_file, sep='\t')
-        print(f'Loaded FPKMs for {fpkms.shape[0]} transcripts of {len(pd.unique(fpkms["gene_id"]))} genes.')
-        fpkms.rename(columns={'tracking_id':'transcript_id'}, inplace=True)
+    transcripts.rename(columns={'id':'transcript_id'}, inplace=True)        
         
-        # Merge the two data frames
-        transcriptome = transcripts.merge(fpkms, how='inner', on='transcript_id')
-        print(f'Kept {transcriptome.shape[0]} transcripts of {len(pd.unique(transcriptome["gene_id"]))} genes after merging.')
+    # try to parse description column, if its ensembl file:
+    if style == 'ensembl':
+        # Extract gene_id and gene_short_name from the description column
+        # The description column is a string with the format:
+        # gene_id:ENSG00000123456 gene_symbol:MYC
+        # We will use regex to extract the gene_id and gene_short_name
+        # from the description column.
+        # The regex pattern is:
+        # gene_id:([a-zA-Z0-9\.]+) gene_symbol:([a-zA-Z0-9\.-]+)
+        # This will match the gene_id and gene_short_name in the description column.
+        # Extract gene_id
+        transcripts['gene_id'] = transcripts['description'].str.extract(r'gene:(\S+)')
+        # Extract gene_symbol
+        transcripts['gene_short_name'] = transcripts['description'].str.extract(r'gene_symbol:(\S+)')
+        transcriptome = transcripts
+    
+    elif style == 'gencode':
+        parsed_dicts = []
+        # use default 
+        for _str in transcripts['description']:
+            _matches = re.search(gencode_regexp, _str)
+            if _matches:
+                parsed_dicts.append(_matches.groupdict())
+            else:
+                raise ValueError(f"{_str}")
+    
+        # assemble df
+        parsed_df = pd.DataFrame(parsed_dicts)
+        parsed_df['sequence'] = transcripts['sequence']
+        # rename gene_name
+        parsed_df.rename(columns={'gene_name':'gene_short_name'}, inplace=True)
+        parsed_df['FPKM'] = transcripts['FPKM']
+        print(f"return gencode style transcriptome")
+        print(parsed_dicts[0])
+        transcriptome = parsed_df
+    
+    if fpkm_tracking_file is not None:
+        # # Load the FPKMs
+        # fpkms = pd.read_csv(fpkm_tracking_file, sep='\t')
+        # print(f'Loaded FPKMs for {fpkms.shape[0]} transcripts of {len(pd.unique(fpkms["gene_id"]))} genes.')
+        # fpkms.rename(columns={'tracking_id':'transcript_id'}, inplace=True)
+        
+        # # Merge the two data frames
+        # transcriptome = transcripts.merge(fpkms, how='inner', on='transcript_id')
+        # print(f'Kept {transcriptome.shape[0]} transcripts of {len(pd.unique(transcriptome["gene_id"]))} genes after merging.')
+
+        # Load FPKM tracking file created by the R script
+        fpkms = pd.read_csv(fpkm_tracking_file, sep="\t")
+
+        print(
+            f"Loaded FPKMs for {fpkms.shape[0]} transcripts of "
+            f"{len(pd.unique(fpkms['gene_id']))} genes."
+        )
+
+        # Ensure transcript_id exists (fallback to tracking_id if needed)
+        if "transcript_id" not in fpkms.columns and "tracking_id" in fpkms.columns:
+            fpkms["transcript_id"] = fpkms["tracking_id"]
+
+        # Only keep the transcript_id and FPKM columns
+        fpkms = fpkms[["transcript_id", "FPKM"]]
+
+        # Merge with your transcript table (keep all transcripts)
+        transcriptome = transcripts.merge(fpkms, how="left", on="transcript_id")
+
+        # Assign FPKM = 1 when transcript_id is not present in FPKM list
+        transcriptome["FPKM"] = transcriptome["FPKM"].fillna(1.0)
+
+        print(
+            f"Kept {transcriptome.shape[0]} transcripts of "
+            f"{len(pd.unique(transcriptome['gene_id']))} genes after merging."
+        )
    
     else:
         transcripts['FPKM'] = [1] * transcripts.shape[0]
-        
-        
-        # try to parse description column, if its ensembl file:
-        if style == 'ensembl':
-            # Extract gene_id and gene_short_name from the description column
-            # The description column is a string with the format:
-            # gene_id:ENSG00000123456 gene_symbol:MYC
-            # We will use regex to extract the gene_id and gene_short_name
-            # from the description column.
-            # The regex pattern is:
-            # gene_id:([a-zA-Z0-9\.]+) gene_symbol:([a-zA-Z0-9\.]+)
-            # This will match the gene_id and gene_short_name in the description column.
-            gene_id_list, gene_name_list = [], []
-            print(len(transcripts))
-            for _str in transcripts['description']:
-                _gene_id_match = re.search(r'gene:([a-zA-Z0-9\.]+) ', _str)
-                if _gene_id_match:
-                    gene_id_list.append(_gene_id_match.groups()[0])
-                else:
-                    gene_id_list.append(None)
-                _gene_name_match = re.search(r'gene_symbol:([a-zA-Z0-9\.-]+) ', _str)
-                if _gene_name_match:
-                    gene_name_list.append(_gene_name_match.groups()[0])
-                else:
-                    gene_name_list.append(None)
-                    
-            transcripts['gene_id'] = pd.Series(gene_id_list, dtype=str)
-            transcripts['gene_short_name'] = pd.Series(gene_name_list, dtype=str)
-            transcriptome = transcripts
-            return transcriptome 
-        
-        elif style == 'gencode':
-            parsed_dicts = []
-            # use default 
-            for _str in transcripts['description']:
-                _matches = re.search(gencode_regexp, _str)
-                if _matches:
-                    parsed_dicts.append(_matches.groupdict())
-                else:
-                    raise ValueError(f"{_str}")
-        
-            # assemble df
-            parsed_df = pd.DataFrame(parsed_dicts)
-            parsed_df['sequence'] = transcripts['sequence']
-            # rename gene_name
-            parsed_df.rename(columns={'gene_name':'gene_short_name'}, inplace=True)
-            parsed_df['FPKM'] = transcripts['FPKM']
-            print(f"return gencode style transcriptome")
-            print(parsed_dicts[0])
-            return parsed_df
     
+    return transcriptome
     
 
 
